@@ -7,10 +7,9 @@
 #include <fstream>
 #include <sstream>
 #include <cctype>
+#include <mutex>
 
 using namespace std;
-
-// parallel with less complication
 
 const int ALPHABET_SIZE = 26;
 
@@ -28,13 +27,13 @@ class AhoCorasick
 private:
     TrieNode *root;
     vector<string> patterns;
+    mutex queueMutex;
 
 public:
     AhoCorasick(const vector<string> &patterns) : patterns(patterns)
     {
         root = new TrieNode();
         buildTrie();
-        buildFailureLinksParallel();
     }
 
     void buildTrie()
@@ -53,7 +52,7 @@ public:
         }
     }
 
-    void buildFailureLinksParallel()
+    void buildFailureLinksParallel(int numThreads)
     {
         queue<TrieNode *> q;
         root->failureLink = root;
@@ -82,39 +81,55 @@ public:
                 q.pop();
             }
 
-#pragma omp parallel for
-            for (int i = 0; i < size; i++)
+            vector<TrieNode *> nextLevel;
+
+#pragma omp parallel num_threads(numThreads)
             {
-                TrieNode *node = currentLevel[i];
+                vector<TrieNode *> localNext;
 
-                for (int c = 0; c < ALPHABET_SIZE; c++)
+#pragma omp for schedule(static)
+                for (int i = 0; i < size; i++)
                 {
-                    TrieNode *child = node->children[c];
-                    if (child)
+                    TrieNode *node = currentLevel[i];
+
+                    for (int c = 0; c < ALPHABET_SIZE; c++)
                     {
-                        TrieNode *fail = node->failureLink;
-                        while (!fail->children[c])
-                            fail = fail->failureLink;
-
-                        child->failureLink = fail->children[c];
-
-#pragma omp critical
+                        TrieNode *child = node->children[c];
+                        if (child)
                         {
+                            TrieNode *fail = node->failureLink;
+                            while (!fail->children[c])
+                                fail = fail->failureLink;
+
+                            child->failureLink = fail->children[c];
+
                             child->output.insert(
                                 child->output.end(),
                                 child->failureLink->output.begin(),
                                 child->failureLink->output.end());
-                        }
 
-#pragma omp critical
-                        q.push(child);
+                            localNext.push_back(child);
+                        }
                     }
                 }
+
+#pragma omp critical
+                nextLevel.insert(nextLevel.end(), localNext.begin(), localNext.end());
+            }
+
+            for (TrieNode *node : nextLevel)
+            {
+                q.push(node);
             }
         }
     }
 
-    void searchParallel(const string &text, int numThreads = 2)
+    struct alignas(64) ThreadResult
+    {
+        vector<string> matches;
+    };
+
+    void searchParallel(const string &text, int numThreads)
     {
         int textLength = text.size();
         int maxPatternLen = 0;
@@ -124,8 +139,7 @@ public:
 
         int chunkSize = (textLength + numThreads - 1) / numThreads;
 
-        // Store results from all threads
-        vector<vector<string>> threadResults(numThreads);
+        vector<ThreadResult> threadResults(numThreads);
 
 #pragma omp parallel num_threads(numThreads)
         {
@@ -139,11 +153,8 @@ public:
             for (int i = start; i < end; ++i)
             {
                 int index = text[i] - 'a';
-
                 while (!node->children[index])
-                {
                     node = node->failureLink;
-                }
                 node = node->children[index];
 
                 for (int patternIndex : node->output)
@@ -163,13 +174,12 @@ public:
                 }
             }
 
-            threadResults[t] = move(localMatches);
+            threadResults[t].matches = move(localMatches);
         }
 
-        // Print results after all threads are done
-        for (const auto &vec : threadResults)
+        for (const auto &result : threadResults)
         {
-            for (const auto &line : vec)
+            for (const auto &line : result.matches)
             {
                 cout << line << endl;
             }
@@ -197,17 +207,21 @@ string loadCleanText(const string &filename)
 
 int main()
 {
-    vector<string> patterns = {
-        "he", "she", "his", "hers", "kk", "hello", "folder", "books", "high", "world", "wild",
-        "black", "trump", "zoo", "play", "wolf", "jack", "matt", "her", "his", "held", "found"};
+    int numThreads = 4; // 1, 2, 3, 4
+    omp_set_num_threads(numThreads);
 
-    string text = loadCleanText("sample.txt");
+    vector<string> patterns = {
+        "secret", "alimohammed", "black", "anarchist", "hallucination", "melancholy", "condition", "arab", "particular", "copyright", "head", "bomb", "lost",
+        "substantial", "information", "possibility", "race", "hold", "found", "aladdin", "antagonist", "compliance", "agreement", "distribute", "prayer"};
+
+    string text = loadCleanText("sample4.txt"); // sample1.txt, sample2.txt, sample3.txt, sample4.txt
 
     AhoCorasick ac(patterns);
 
     auto start = chrono::high_resolution_clock::now();
 
-    ac.searchParallel(text, 10); // Adjust thread count here
+    ac.buildFailureLinksParallel(numThreads);
+    ac.searchParallel(text, numThreads);
 
     auto end = chrono::high_resolution_clock::now();
     chrono::duration<double> duration = end - start;
@@ -216,3 +230,5 @@ int main()
 
     return 0;
 }
+
+//...+ ساخت فیلیر لینک بصورت موازی و جستجو هم بصورت موازی + جلوگیری از فالس شیرینگ

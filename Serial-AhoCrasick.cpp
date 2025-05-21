@@ -9,7 +9,7 @@
 
 using namespace std;
 
-const int ALPHABET_SIZE = 26; // Assume we only have letters a-z
+const int ALPHABET_SIZE = 26;
 
 // Data structure for Trie nodes
 struct TrieNode
@@ -36,7 +36,7 @@ public:
         buildFailureLinks();
     }
 
-    // Step 1: Construct the Trie
+    // Construct the Trie
     void buildTrie()
     {
         for (int i = 0; i < patterns.size(); i++)
@@ -55,7 +55,7 @@ public:
         }
     }
 
-    // Step 2: Calculation of Failure Links
+    // Calculation of Failure Links
     void buildFailureLinks()
     {
         queue<TrieNode *> q;
@@ -104,7 +104,6 @@ public:
         }
     }
 
-    // Step 3: Search in the text
     void search(const string &text)
     {
         TrieNode *node = root;
@@ -117,7 +116,6 @@ public:
             }
             node = node->children[index];
 
-            // If a pattern is found in this position, print it
             for (int patternIndex : node->output)
             {
                 cout << "Pattern \"" << patterns[patternIndex]
@@ -148,11 +146,10 @@ string loadCleanText(const string &filename)
 int main()
 {
     vector<string> patterns = {
-        "he", "she", "his", "hers", "kk", "hello", "folder", "books", "high", "world", "wild",
-        "black", "trump", "zoo", "play", "wolf", "jack", "matt", "her", "his", "held", "found"};
+        "secret", "alimohammed", "black", "anarchist", "hallucination", "melancholy", "condition", "arab", "particular", "copyright", "head", "bomb", "lost",
+        "substantial", "information", "possibility", "race", "hold", "found", "aladdin", "antagonist", "compliance", "agreement", "distribute", "prayer"};
 
-    // 🗂️ Load cleaned text from file
-    string text = loadCleanText("sample.txt");
+    string text = loadCleanText("sample3.txt"); // sample1.txt, sample2.txt, sample3.txt, sample4.txt
 
     AhoCorasick ac(patterns);
 
